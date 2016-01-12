@@ -851,7 +851,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 		WLS_REQUEST.url_escaped = (char *) ngx_pcalloc(r->pool, 3*(16 + r->headers_in.server.len + r->uri.len)  + 1); // Same as above, but three times bigger for maximum possible escaping
 
 #if (NGX_HTTP_SSL)
-	if(r->http_connection.ssl) // Make an "https://" prefixed url
+	if(r->http_connection->ssl) // Make an "https://" prefixed url
 	{
 		ngx_sprintf((u_char *)WLS_REQUEST.url, "https://%s:%s%s", (char *) r->headers_in.server.data, port,
 				uri);
