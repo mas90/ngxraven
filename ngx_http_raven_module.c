@@ -631,7 +631,19 @@ static ngx_int_t ngx_http_raven_wls_response_ok(ngx_http_request_t *r, ngx_str_t
 
 	decoded_sig.data[decoded_sig.len] = '\0'; // NULL terminate to be safe and tidy
 
-	dat = (char *) ngx_pcalloc(r->pool, 2048);
+	dat = (char *) ngx_pcalloc(r->pool, 64 // strlen(FORMAT_STRING) < 64
+			+ strlen(WLS_RESPONSE.ver)
+			+ strlen(WLS_RESPONSE.status)
+			+ strlen(WLS_RESPONSE.msg)
+			+ strlen(WLS_RESPONSE.issue)
+			+ strlen(WLS_RESPONSE.id)
+			+ strlen(WLS_RESPONSE.url)
+			+ strlen(WLS_RESPONSE.principal)
+			+ strlen(WLS_RESPONSE.ptags)
+			+ strlen(WLS_RESPONSE.auth)
+			+ strlen(WLS_RESPONSE.sso)
+			+ strlen(WLS_RESPONSE.life)
+			+ strlen(WLS_RESPONSE.params) + 1); // + 1 for NULL termination
 
 	ngx_sprintf((u_char *) dat, "%s!%s!%s!%s!%s!%s!%s!%s!%s!%s!%s!%s", // Make check string
 			WLS_RESPONSE.ver, WLS_RESPONSE.status, WLS_RESPONSE.msg,
