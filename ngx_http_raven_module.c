@@ -27,7 +27,9 @@
 #define PUBKEY "../conf/raven.pem" // Just for testing, maybe merge this into config some time. Put cert wherever you like
 #define VER "3" // Version of WAA->WLS protocol supported
 #define EMPTY_PARAM ""; // Default parameter value used when constructing WLS request
-#define RFC3339_EPOCH "19700101T000000Z" // We use this to size issue time checking array
+#define TIMESTAMP_EPOCH "19700101T000000Z" // We use this to size issue time checking array
+#define TIMESTAMP_FORMAT "%Y%m%dT%H%M%SZ" // "A scheme based on RFC 3339, except that time-offset MUST be 'Z', the alphabetic characters MUST be in upper case and the punctuation characters are omitted"
+#define RESPONSE_TIMEOUT 20 // The length of time for which WLS responses are considered valid
 
 /*
  * Initialised during postconfiguration (init), eliminates the need for calls to fopen during operation
@@ -514,9 +516,10 @@ static ngx_int_t ngx_http_raven_wls_response_ok(ngx_http_request_t *r, ngx_str_t
 	ngx_str_t encoded_sig;
 	ngx_str_t decoded_sig;
 	int i;
-	time_t raw_skewed; // To hold current time skew
-	char *fmt_skewed;
-	int lzy;
+	time_t cur_time; // To hold the actual time (UTC)
+	struct tm issue_tm; // To hold the WLS response issue time (UTC)
+	time_t issue_time; // To hold the WLS response issue time (UTC)
+	time_t time_skew; // The number of seconds either side of "now" that we'll accept a WLS response issue time
 	/*
 	 * First we check to see if there are enough parameters
 	 */
@@ -553,24 +556,34 @@ static ngx_int_t ngx_http_raven_wls_response_ok(ngx_http_request_t *r, ngx_str_t
 	WLS_RESPONSE.issue = strsep(&str, "!");
 
 	/*
-	 * Get current time
-	 * More efficient coming from this angle, rather than decoding rfc3339 timestamp and then adding skew
+	 * Check issue time
 	 */
-	raw_skewed = ngx_time();
-	fmt_skewed = ngx_pcalloc(r->pool, sizeof(RFC3339_EPOCH)); // +1 for NULL termination
-    strftime(fmt_skewed, sizeof(RFC3339_EPOCH), "%Y%m%dT%H%M%SZ", gmtime(&raw_skewed));
-
-    lzy = sizeof(RFC3339_EPOCH) - 1; // RavenLazyClock init
-    if(raven_config->RavenLazyClock)
-    	lzy -= 3; // If we're in lazy clock mode, seconds aren't important, so trim the end
-    if(strncmp(WLS_RESPONSE.issue, fmt_skewed, lzy) == 0){ // String lengths okay
-    	ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ngx_http_raven_wls_response_ok: Issue time OK: %s vs. %s",  WLS_RESPONSE.issue, fmt_skewed);
-    }
-    else
-    	{
-    	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_wls_response_ok: Bad issue time: %s vs. %s",  WLS_RESPONSE.issue, fmt_skewed);
-    	return NGX_DECLINED;
-    	}
+	cur_time = ngx_time();
+	strptime(WLS_RESPONSE.issue, TIMESTAMP_FORMAT, &issue_tm);
+	issue_time = timegm(&issue_tm);
+	// RavenLazyClock init
+	if(raven_config->RavenLazyClock) {
+		time_skew = 60;
+	} else {
+		// Allow for small time difference causing second wrap (matching the behaviour of mod_ucam_webauth)
+		time_skew = 1;
+	}
+	if(issue_time > cur_time + time_skew) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_wls_response_ok: WLS response issued in the future (local clock incorrect?); issue time %s (%d) vs. local clock %d",
+				WLS_RESPONSE.issue,
+				issue_time,
+				cur_time);
+		return NGX_DECLINED;
+	}
+	if(cur_time - time_skew - 1 > issue_time + RESPONSE_TIMEOUT) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_wls_response_ok: WLS response issued too long ago (local clock incorrect?); issue time %s (%d) vs. local clock %d",
+				WLS_RESPONSE.issue,
+				issue_time,
+				cur_time);
+		return NGX_DECLINED;
+	}
 
 	WLS_RESPONSE.id = strsep(&str, "!");
 	WLS_RESPONSE.url = strsep(&str, "!");
