@@ -543,12 +543,18 @@ static ngx_int_t ngx_http_raven_wls_response_ok(ngx_http_request_t *r, ngx_str_t
 
 	if(strcmp(WLS_RESPONSE.ver, VER) != 0) // Check here that version is 3+
 	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_wls_response_ok: Unknown WLS response version %s",
+				WLS_RESPONSE.ver);
 		return NGX_DECLINED; // This version is unkown, and we do not know how to handle
 	}
 	WLS_RESPONSE.status = strsep(&str, "!");
 
 	if(strcmp(WLS_RESPONSE.status, "200") != 0) // Check here that status is 200 "OK"
 	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_wls_response_ok: Unexpected WLS response status %s",
+				WLS_RESPONSE.status);
 		return NGX_DECLINED; // Authentication apparently failed, but this should be handled by the WLS, so we probably never get here
 	}
 
@@ -604,6 +610,8 @@ static ngx_int_t ngx_http_raven_wls_response_ok(ngx_http_request_t *r, ngx_str_t
 	WLS_RESPONSE.params = strsep(&str, "!");
 
 	if(strcmp(WLS_RESPONSE.params, guid) != 0){ // Check returned params here
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_wls_response_ok: Incorrect or missing server GUID (replayed response from another server?)");
 		return NGX_DECLINED; // Probably the response was intercepted from another server and replayed
 	}
 
@@ -694,6 +702,8 @@ static ngx_int_t ngx_http_raven_drop_cookie(ngx_http_request_t *r, char *princip
 	 */
 	cookie = ngx_pcalloc(r->pool, 256 + strlen(principal) + 1); // Make sure is zeroed, as will be returned to client and may otherwise leak data
 	if (cookie == NULL) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_drop_cookie: Could not allocate memory for cookie: %s", strerror(errno));
 		return NGX_DECLINED;
 	}
 
@@ -725,6 +735,7 @@ static ngx_int_t ngx_http_raven_drop_cookie(ngx_http_request_t *r, char *princip
 
 	set_cookie = ngx_list_push(&r->headers_out.headers);
 	if (set_cookie == NULL) {
+		/* Probably unreachable */
 		return NGX_DECLINED;
 	}
 
