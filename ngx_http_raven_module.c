@@ -1042,7 +1042,7 @@ static ngx_int_t ngx_http_raven_init(ngx_conf_t *cf) {
 	fseek(f, 0, SEEK_SET);
 
 	key = malloc(fsize + 1);
-	fsize = fread(key, fsize, 1, f);
+	fsize = fread(key, 1, fsize, f);
 	fclose(f);
 
 	key[fsize] = 0; // NULL terminate to be safe and tidy
