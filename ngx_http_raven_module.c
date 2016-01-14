@@ -64,6 +64,7 @@ typedef struct {
 	time_t RavenMaxSessionLife; // The period of time for which an established session will be valid
 	ngx_str_t RavenSecretKey; // A random key used to protect session cookies from tampering
 	ngx_str_t RavenCookieName; // The name used for the session cookie
+	ngx_flag_t RavenCleanUrl; // After authentication, redirect again to remove WLS-Response from the URL
 	/*
 	 *  If a cookie's domain and path are not specified by the server, they default to the domain and path of the
 	 *  resource that was requested. Domain and path configuration parameters are not currently supported (unlikely to be needed
@@ -153,6 +154,13 @@ ngx_conf_set_flag_slot, // Saves a flag
 				offsetof(ngx_http_raven_loc_conf_t, RavenCookieName), // Specifies which part of this configuration struct to write to
 				NULL }, // Just a pointer to other things the module might need while it's reading the configuration. It's often NULL
 
+		{ ngx_string("RavenCleanUrl"), // Directive string, no spaces
+		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1, // Directive is valid in a location config, directive can take exactly 1 argument
+		ngx_conf_set_flag_slot, // Saves a flag
+				NGX_HTTP_LOC_CONF_OFFSET, // Save to module's location configuration
+				offsetof(ngx_http_raven_loc_conf_t, RavenCleanUrl), // Specifies which part of this configuration struct to write to
+				NULL }, // Just a pointer to other things the module might need while it's reading the configuration. It's often NULL
+
 		ngx_null_command };
 
 /*
@@ -169,6 +177,7 @@ ngx_http_raven_create_loc_conf(ngx_conf_t *cf) {
 	conf->RavenActive = NGX_CONF_UNSET;
 	conf->RavenLazyClock = NGX_CONF_UNSET;
 	conf->RavenMaxSessionLife = NGX_CONF_UNSET;
+	conf->RavenCleanUrl = NGX_CONF_UNSET;
 
 	return conf;
 }
@@ -198,6 +207,7 @@ ngx_http_raven_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
 	ngx_conf_merge_value(conf->RavenMaxSessionLife, prev->RavenMaxSessionLife,
 			7200); // Defaults to 7200 seconds (2 hours)
 	ngx_conf_merge_str_value(conf->RavenSecretKey, prev->RavenSecretKey, NULL); // Defaults to NULL
+	ngx_conf_merge_value(conf->RavenCleanUrl, prev->RavenCleanUrl, 0); // Defaults to off (0)
 
 	if (conf->RavenSecretKey.data != NULL) { // Location has key
 		ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "ngx_http_raven_merge_loc_conf: Adding cookie key"); // RavenSecretKey's value is redacted from logs for obvious reasons
@@ -851,7 +861,26 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
 						"ngx_http_raven_handler: Failed to set cookie");
 			}
-			return NGX_DECLINED;
+
+			/*
+			 * Successful authentication; return (optionally to a cleaned-up URL)
+			 */
+			if(raven_config->RavenCleanUrl) {
+				r->headers_out.location = ngx_list_push(&r->headers_out.headers);
+				r->headers_out.location->hash = 1;
+				r->headers_out.location->key.len = sizeof("Location") - 1;
+				r->headers_out.location->key.data = (u_char *) "Location";
+				r->headers_out.location->value.len = r->uri.len;
+				r->headers_out.location->value.data = r->uri.data;
+
+				if (r->http_version >= NGX_HTTP_VERSION_11) {
+					return NGX_HTTP_SEE_OTHER; // 303
+				} else {
+					return NGX_HTTP_MOVED_TEMPORARILY; // 302
+				}
+			} else {
+				return NGX_DECLINED;
+			}
 		} else {
 			return NGX_HTTP_FORBIDDEN; // Looks like someone has tampered with the sig, or some other condition is not met
 		}
