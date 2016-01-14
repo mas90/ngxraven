@@ -442,20 +442,26 @@ static ngx_int_t ngx_http_raven_check_sig(ngx_http_request_t *r, char *dat, char
 	int verified = 0; // Separate variable for reporting verification failure/success
 	pk_context pk;
 	unsigned char hash[20]; // To hold SHA1 hash
+	char errbuf[128];
 	sha1((unsigned char*) dat, strlen(dat), hash);
 	pk_init(&pk);
 	/* Replaced with in-memory public key, no fopen required during operation */
 	// if (pk_parse_public_keyfile(&pk, PUBKEY) == 0) {
-	if(pk_parse_public_key(&pk, (const u_char *)key, strlen(key)) == 0){
+	if((res = pk_parse_public_key(&pk, (const u_char *)key, strlen(key))) == 0){
 		if ((res = pk_verify(&pk, POLARSSL_MD_SHA1, hash, 20,
 				(const unsigned char*) sig, 128)) == 0) { // Can't use strlen(sig) here, as sig is binary data and may have an embedded NULL
 			verified = 1; // Success
+		} else {
+			/* Fetch PolarSSL error description */
+			error_strerror(res, &errbuf, sizeof(errbuf));
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: pk_verify error %d: %s",
+					res, errbuf);
 		}
-	}
-	if(!verified) // Log specific error code on failure
-	{
-	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: pk_verify error %d",
-			res);
+	} else {
+		/* Fetch PolarSSL error description */
+		error_strerror(res, &errbuf, sizeof(errbuf));
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: pk_parse_public_key error %d: %s",
+				res, errbuf);
 	}
 	return verified; // Might change to return NGX_OK/NGX_DECLINED for consitency
 }
