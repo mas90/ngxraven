@@ -850,8 +850,6 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 		}
 	}
 
-	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-			"ngx_http_raven_handler: Bad WLS response");
 /*
  * We only get here if there is no valid session cookie or WLS response, so now we perform redirect
  */
