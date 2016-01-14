@@ -446,7 +446,7 @@ static ngx_int_t ngx_http_raven_check_sig(ngx_http_request_t *r, char *dat, char
 	sha1((unsigned char*) dat, strlen(dat), hash);
 	pk_init(&pk);
 	/* Replaced with in-memory public key, no fopen required during operation */
-	// if (pk_parse_public_keyfile(&pk, PUBKEY) == 0) {
+	//if((res = pk_parse_public_keyfile(&pk, PUBKEY)) == 0) {
 	if((res = pk_parse_public_key(&pk, (const u_char *)key, strlen(key))) == 0){
 		if ((res = pk_verify(&pk, POLARSSL_MD_SHA1, hash, 20,
 				(const unsigned char*) sig, 128)) == 0) { // Can't use strlen(sig) here, as sig is binary data and may have an embedded NULL
