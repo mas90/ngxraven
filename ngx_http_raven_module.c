@@ -1017,12 +1017,17 @@ static ngx_int_t ngx_http_raven_init(ngx_conf_t *cf) {
  * Load public key from disk into RAM
  */
 	f = fopen(PUBKEY, "rb");
+	if (!f) {
+		ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+				"ngx_http_raven_init: Cannot open public key '%s': %s", PUBKEY, strerror(errno));
+			return NGX_ERROR;
+	}
 	fseek(f, 0, SEEK_END);
 	fsize = ftell(f);
 	fseek(f, 0, SEEK_SET);
 
 	key = malloc(fsize + 1);
-	fread(key, fsize, 1, f);
+	fsize = fread(key, fsize, 1, f);
 	fclose(f);
 
 	key[fsize] = 0; // NULL terminate to be safe and tidy
