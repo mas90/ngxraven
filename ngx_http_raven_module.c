@@ -752,7 +752,8 @@ static ngx_int_t ngx_http_raven_drop_cookie(ngx_http_request_t *r, char *princip
 
 	set_cookie = ngx_list_push(&r->headers_out.headers);
 	if (set_cookie == NULL) {
-		/* Probably unreachable */
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_drop_cookie: Could not allocate memory for Set-Cookie header: %s", strerror(errno));
 		return NGX_DECLINED;
 	}
 
@@ -831,6 +832,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 		/*
 		 * We need a cookie name to work with! Should at least be a default, else something has gone terribly wrong
 		 */
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_handler: zero-length cookie name");
 		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 	}
 	/*
@@ -979,6 +981,8 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 
 	r->headers_out.location = ngx_list_push(&r->headers_out.headers);
 	if (r->headers_out.location == NULL) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_handler: Could not allocate memory for Location header: %s", strerror(errno));
 		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
 	}
 
