@@ -454,13 +454,13 @@ static ngx_int_t ngx_http_raven_check_sig(ngx_http_request_t *r, char *dat, char
 			verified = 1; // Success
 		} else {
 			/* Fetch PolarSSL error description */
-			error_strerror(res, (char *) &errbuf, sizeof(errbuf));
+			error_strerror(res, errbuf, sizeof(errbuf));
 			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: pk_verify error %d: %s",
 					res, errbuf);
 		}
 	} else {
 		/* Fetch PolarSSL error description */
-		error_strerror(res, (char *) &errbuf, sizeof(errbuf));
+		error_strerror(res, errbuf, sizeof(errbuf));
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: pk_parse_public_key error %d: %s",
 				res, errbuf);
 	}
