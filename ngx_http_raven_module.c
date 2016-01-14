@@ -1045,6 +1045,11 @@ static ngx_int_t ngx_http_raven_init(ngx_conf_t *cf) {
 	fsize = fread(key, 1, fsize, f);
 	fclose(f);
 
+	if (!fsize) {
+		ngx_conf_log_error(NGX_LOG_ERR, cf, 0,
+				"ngx_http_raven_init: Empty public key '%s': %s", PUBKEY, strerror(errno));
+	}
+
 	key[fsize] = 0; // NULL terminate to be safe and tidy
 
 /*
