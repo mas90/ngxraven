@@ -959,7 +959,11 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 	r->headers_out.location->value.len = strlen(redirect);
 	r->headers_out.location->value.data = (u_char *) redirect;
 
-	return NGX_HTTP_MOVED_TEMPORARILY; // 302
+	if (r->http_version >= NGX_HTTP_VERSION_11) {
+		return NGX_HTTP_SEE_OTHER; // 303
+	} else {
+		return NGX_HTTP_MOVED_TEMPORARILY; // 302
+	}
 	// Shell Beach
 }
 
