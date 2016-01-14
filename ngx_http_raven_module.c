@@ -199,7 +199,7 @@ ngx_http_raven_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
 	ngx_conf_merge_str_value(conf->RavenSecretKey, prev->RavenSecretKey, NULL); // Defaults to NULL
 
 	if (conf->RavenSecretKey.data != NULL) { // Location has key
-		ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "ngx_http_raven_merge_loc_conf: Adding cookie key"); // RavenSecretKey's value is redacted from logs for obvious reasons
+		ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "ngx_http_raven_merge_loc_conf: Adding cookie key"); // RavenSecretKey's value is redacted from logs for obvious reasons
 		if (conf->RavenSecretKey.len < MIN_KEY_LENGTH) { // You wanna choose a longer key maybe?!
 			if (conf->RavenActive) // We refuse to start if a location is active and configured with a poor key
 			{
@@ -984,11 +984,11 @@ ngx_http_raven_rule(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 	rule->principal = value[1];
 	rule->deny = (value[0].data[5] == 'D') ? 1 : 0; // Deny? (Raven!D!eny)
 	if (rule->deny) {
-		ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+		ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
 				"ngx_http_raven_rule: Adding rule #%d (deny) for user %s", raven_conf->rules->nelts,
 				rule->principal.data);
 	} else {
-		ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+		ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
 				"ngx_http_raven_rule: Adding rule #%d (allow) for user %s", raven_conf->rules->nelts,
 				rule->principal.data);
 	}
