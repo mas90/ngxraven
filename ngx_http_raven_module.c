@@ -65,6 +65,7 @@ typedef struct {
 	ngx_str_t RavenSecretKey; // A random key used to protect session cookies from tampering
 	ngx_str_t RavenCookieName; // The name used for the session cookie
 	ngx_flag_t RavenCleanUrl; // After authentication, redirect again to remove WLS-Response from the URL
+	ngx_flag_t RavenSetUser; // Set $remote_user to the authenticated Raven principal (by faking an Authorization: Basic header)
 	/*
 	 *  If a cookie's domain and path are not specified by the server, they default to the domain and path of the
 	 *  resource that was requested. Domain and path configuration parameters are not currently supported (unlikely to be needed
@@ -161,6 +162,13 @@ ngx_conf_set_flag_slot, // Saves a flag
 				offsetof(ngx_http_raven_loc_conf_t, RavenCleanUrl), // Specifies which part of this configuration struct to write to
 				NULL }, // Just a pointer to other things the module might need while it's reading the configuration. It's often NULL
 
+		{ ngx_string("RavenSetUser"), // Directive string, no spaces
+		NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1, // Directive is valid in a location config, directive can take exactly 1 argument
+		ngx_conf_set_flag_slot, // Saves a flag
+				NGX_HTTP_LOC_CONF_OFFSET, // Save to module's location configuration
+				offsetof(ngx_http_raven_loc_conf_t, RavenSetUser), // Specifies which part of this configuration struct to write to
+				NULL }, // Just a pointer to other things the module might need while it's reading the configuration. It's often NULL
+
 		ngx_null_command };
 
 /*
@@ -178,6 +186,7 @@ ngx_http_raven_create_loc_conf(ngx_conf_t *cf) {
 	conf->RavenLazyClock = NGX_CONF_UNSET;
 	conf->RavenMaxSessionLife = NGX_CONF_UNSET;
 	conf->RavenCleanUrl = NGX_CONF_UNSET;
+	conf->RavenSetUser = NGX_CONF_UNSET;
 
 	return conf;
 }
@@ -208,6 +217,7 @@ ngx_http_raven_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
 			7200); // Defaults to 7200 seconds (2 hours)
 	ngx_conf_merge_str_value(conf->RavenSecretKey, prev->RavenSecretKey, NULL); // Defaults to NULL
 	ngx_conf_merge_value(conf->RavenCleanUrl, prev->RavenCleanUrl, 0); // Defaults to off (0)
+	ngx_conf_merge_value(conf->RavenSetUser, prev->RavenSetUser, 1); // Defaults to on (1)
 
 	if (conf->RavenSecretKey.data != NULL) { // Location has key
 		ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "ngx_http_raven_merge_loc_conf: Adding cookie key"); // RavenSecretKey's value is redacted from logs for obvious reasons
@@ -345,10 +355,11 @@ static ngx_int_t ngx_http_raven_strneq(char *s1, char *s2) {
 
 /*
  * This function checks the validity and authenticity of a session cookie
+ * and writes a pointer to the principal into **principal
  * Returns NGX_OK for a good cookie, NGX_DECLINED otherwise
  */
 static ngx_int_t ngx_http_raven_cookie_ok(ngx_http_request_t *r, ngx_str_t *value,
-		ngx_http_raven_loc_conf_t *raven_config) {
+		ngx_http_raven_loc_conf_t *raven_config, char **principal) {
 	struct {
 		char *principal;
 		char *expiry;
@@ -414,6 +425,7 @@ static ngx_int_t ngx_http_raven_cookie_ok(ngx_http_request_t *r, ngx_str_t *valu
 		ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
 				"ngx_http_raven_cookie_ok: Sig match,\nA: %s\nB: %s",
 				COOKIE_STRUCT.sig, (char *) encoded_sig.data);
+		*principal = COOKIE_STRUCT.principal;
 		return NGX_OK;
 	}
 	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, // Signatures do not match
@@ -782,6 +794,51 @@ ngx_pstrdup0(ngx_pool_t *pool, ngx_str_t *src) {
 }
 
 /*
+ * Fake up a basic Authorization header so that $remote_user is set
+ */
+static ngx_int_t ngx_http_raven_fake_auth_header(ngx_http_request_t *r, char *principal) {
+	ngx_str_t auth_hdr_decoded;
+	ngx_str_t auth_hdr;
+	ngx_str_t auth_hdr_p;
+	ngx_http_raven_loc_conf_t *raven_config;
+
+	raven_config = ngx_http_get_module_loc_conf(r, ngx_http_raven_module);
+	if (!raven_config->RavenSetUser) {
+		return NGX_DECLINED;
+	}
+
+	auth_hdr_decoded.len = strlen(principal)+1;  // for trailing colon, <username>:
+	auth_hdr_decoded.data = ngx_pcalloc(r->pool, auth_hdr_decoded.len+1); // for NULL termination
+	if (auth_hdr_decoded.data != NULL) {
+		ngx_memcpy(auth_hdr_decoded.data, principal, auth_hdr_decoded.len-1);
+		auth_hdr_decoded.data[auth_hdr_decoded.len-1] = ':';
+		auth_hdr_decoded.data[auth_hdr_decoded.len] = '\0';
+		auth_hdr.len = ngx_base64_encoded_length(auth_hdr_decoded.len) + sizeof("Basic ") - 1;
+		auth_hdr.data = ngx_pcalloc(r->pool, auth_hdr.len+1);
+		if (auth_hdr.data != NULL) {
+			ngx_memcpy(auth_hdr.data, (char *)"Basic ", sizeof("Basic ") - 1);
+			auth_hdr_p.data = auth_hdr.data + sizeof("Basic ") - 1;
+			auth_hdr_p.len = auth_hdr.len - sizeof("Basic ") + 1;
+			ngx_encode_base64(&auth_hdr_p, &auth_hdr_decoded);
+
+			if (r->headers_in.authorization == NULL) {
+				r->headers_in.authorization = ngx_list_push(&r->headers_in.headers);
+			}
+			r->headers_in.authorization->hash = 1;
+			r->headers_in.authorization->key.data = ngx_pcalloc(r->pool, sizeof("Authorization\0"));
+			if (r->headers_in.authorization->key.data != NULL) {
+				ngx_memcpy(r->headers_in.authorization->key.data, (char *)"Authorization\0", sizeof("Authorization\0"));
+				r->headers_in.authorization->key.len = sizeof("Authorization");
+			}
+			r->headers_in.authorization->value = auth_hdr;
+
+			return NGX_OK;
+		}
+	}
+	return NGX_ERROR;
+}
+
+/*
  * This is the main handler function. Where the magic happens
  *
  * Returns NGX_HTTP_FORBIDDEN, unless it finds and validates either a session cookie or a WLS response (in that order),
@@ -841,8 +898,9 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 	if (ngx_http_session_cookie_check(r, &value, raven_config) == NGX_OK) { // Is there a cookie?
 		ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ngx_http_raven_handler: Found cookie \"%s\"", (char *)raven_config->RavenCookieName.data);
 		cookie_string.data = ngx_pstrdup0(r->pool, &value); // Make a copy of value, as we may work destructively with this string
-		if (ngx_http_raven_cookie_ok(r, &cookie_string, raven_config) == NGX_OK) {
+		if (ngx_http_raven_cookie_ok(r, &cookie_string, raven_config, &principal) == NGX_OK) {
 			ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ngx_http_raven_handler: Cookie OK");
+			ngx_http_raven_fake_auth_header(r, principal);
 			return NGX_DECLINED;
 		}
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_handler: Bad cookie");
@@ -867,6 +925,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 			/*
 			 * Successful authentication; return (optionally to a cleaned-up URL)
 			 */
+			ngx_http_raven_fake_auth_header(r, principal);
 			if(raven_config->RavenCleanUrl) {
 				r->headers_out.location = ngx_list_push(&r->headers_out.headers);
 				r->headers_out.location->hash = 1;
