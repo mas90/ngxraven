@@ -524,7 +524,7 @@ static ngx_int_t ngx_http_raven_special_escape(char *sSource, char *sDest) {
  * Warning: "value" will be overwritten/destroyed as it gets fed to strsep! Om nom nom
  */
 static ngx_int_t ngx_http_raven_wls_response_ok(ngx_http_request_t *r, ngx_str_t *value,
-		ngx_http_raven_loc_conf_t *raven_config) {
+		char **original_url, ngx_http_raven_loc_conf_t *raven_config) {
 	struct {
 		char *ver;
 		char *status;
@@ -711,6 +711,7 @@ static ngx_int_t ngx_http_raven_wls_response_ok(ngx_http_request_t *r, ngx_str_t
 	}
 	value->len = strlen(WLS_RESPONSE.principal);
     value->data = (u_char *)WLS_RESPONSE.principal; // Return principal in value parameter
+	*original_url = WLS_RESPONSE.url; // Return pointer to url
 	return NGX_OK;
 }
 
@@ -910,7 +911,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 	 */
 	if (ngx_http_wls_response_check(r, &value) == NGX_OK) { // is there a WLS response?
 		wls_response_string.data = ngx_pstrdup0(r->pool, &value); // Make a copy of value, as we may work destructively with this string
-		if (ngx_http_raven_wls_response_ok(r, &wls_response_string, raven_config) == NGX_OK) {
+		if (ngx_http_raven_wls_response_ok(r, &wls_response_string, &redirect, raven_config) == NGX_OK) {
 			ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
 					"ngx_http_raven_handler: WLS response is OK");
 			principal = (char *)wls_response_string.data;
@@ -931,8 +932,8 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 				r->headers_out.location->hash = 1;
 				r->headers_out.location->key.len = sizeof("Location") - 1;
 				r->headers_out.location->key.data = (u_char *) "Location";
-				r->headers_out.location->value.len = r->uri.len;
-				r->headers_out.location->value.data = r->uri.data;
+				r->headers_out.location->value.len = strlen(redirect);
+				r->headers_out.location->value.data = redirect;
 
 				if (r->http_version >= NGX_HTTP_VERSION_11) {
 					return NGX_HTTP_SEE_OTHER; // 303
