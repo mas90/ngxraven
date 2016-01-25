@@ -973,19 +973,23 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 	}
 
 	uri = (char *) ngx_pcalloc(r->pool, r->uri.len + 1 + r->args.len + 1); // to accommodate '?' and NULL terminator
-	if (uri != NULL) { // If memory allocation was successfull
-		ngx_memcpy(uri, r->uri.data, r->uri.len); // Copy
-		if (r->args.len > 0) {
-			uri[r->uri.len] = '?';
-			ngx_memcpy(uri + r->uri.len + 1, r->args.data, r->args.len);
-			uri[r->uri.len + 1 + r->args.len] = '\0'; // NULL terminate to be safe and tidy
-		} else {
-			uri[r->uri.len] = '\0'; // NULL terminate to be safe and tidy
-		}
+	if (uri == NULL) {
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				"ngx_http_raven_handler: Could not allocate memory for uri: %s", strerror(errno));
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
-		WLS_REQUEST.url = (char *) ngx_pcalloc(r->pool, 16 + r->headers_in.server.len + r->uri.len + 1 + r->args.len + 1); // strlen("https://:65535") < 14, + '?' + NULL termination
-		WLS_REQUEST.url_escaped = (char *) ngx_pcalloc(r->pool, 3*(16 + r->headers_in.server.len + r->uri.len + 1 + r->args.len) + 1); // Same as above, but three times bigger for maximum possible escaping
+	ngx_memcpy(uri, r->uri.data, r->uri.len); // Copy
+	if (r->args.len > 0) {
+		uri[r->uri.len] = '?';
+		ngx_memcpy(uri + r->uri.len + 1, r->args.data, r->args.len);
+		uri[r->uri.len + 1 + r->args.len] = '\0'; // NULL terminate to be safe and tidy
+	} else {
+		uri[r->uri.len] = '\0'; // NULL terminate to be safe and tidy
+	}
+
+	WLS_REQUEST.url = (char *) ngx_pcalloc(r->pool, 16 + r->headers_in.server.len + r->uri.len + 1 + r->args.len + 1); // strlen("https://:65535") < 14, + '?' + NULL termination
+	WLS_REQUEST.url_escaped = (char *) ngx_pcalloc(r->pool, 3*(16 + r->headers_in.server.len + r->uri.len + 1 + r->args.len) + 1); // Same as above, but three times bigger for maximum possible escaping
 
 #if (NGX_HTTP_SSL)
 	if(r->http_connection->ssl) // Make an "https://" prefixed url
