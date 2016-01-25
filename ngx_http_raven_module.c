@@ -890,7 +890,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 		 * We need a cookie name to work with! Should at least be a default, else something has gone terribly wrong
 		 */
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_handler: zero-length cookie name");
-		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 	/*
 	 * Try and find a session cookie
@@ -1048,7 +1048,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 	if (r->headers_out.location == NULL) {
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
 				"ngx_http_raven_handler: Could not allocate memory for Location header: %s", strerror(errno));
-		ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	r->headers_out.location->hash = 1;
