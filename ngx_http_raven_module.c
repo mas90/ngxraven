@@ -859,7 +859,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 		char *skew;
 		char *fail;
 	} WLS_REQUEST;
-    char *port; // e.g. "8080"
+	in_port_t port; // e.g. "8080"
 	char *principal; // The authenticated user, e.g. "fjc55"
 	struct sockaddr_in *sin;
 #if (NGX_HAVE_INET6)
@@ -957,19 +957,18 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 	/*
 	 * You might think we can use r->port_start, but it is actually not used and always NULL
 	 */
-	port = ngx_pcalloc(r->pool, sizeof(65535)); // Largest port number we should possibly get
 	switch (r->connection->local_sockaddr->sa_family) {
 
 #if (NGX_HAVE_INET6)
 	case AF_INET6:
-	sin6 = (struct sockaddr_in6 *) r->connection->local_sockaddr;
-	ngx_sprintf((u_char *)port, "%ui%c", ntohs(sin6->sin6_port), '\0');
-	break;
+		sin6 = (struct sockaddr_in6 *) r->connection->local_sockaddr;
+		port = ntohs(sin6->sin6_port);
+		break;
 #endif
 
 	default: // AF_INET
 		sin = (struct sockaddr_in *) r->connection->local_sockaddr;
-		ngx_sprintf((u_char *)port, "%ui%c", ntohs(sin->sin_port), '\0');
+		port = ntohs(sin->sin_port);
 		break;
 	}
 
@@ -995,15 +994,15 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 #if (NGX_HTTP_SSL)
 	if(r->http_connection->ssl) // Make an "https://" prefixed url
 	{
-		ngx_sprintf((u_char *)WLS_REQUEST.url, "https://%V:%s%s", &r->headers_in.server, port, uri);
+		ngx_sprintf((u_char *)WLS_REQUEST.url, "https://%V:%ui%s", &r->headers_in.server, port, uri);
 	}
 	else // Make an "http://" prefixed url
 	{
-		ngx_sprintf((u_char *)WLS_REQUEST.url, "http://%V:%s%s", &r->headers_in.server, port, uri);
+		ngx_sprintf((u_char *)WLS_REQUEST.url, "http://%V:%ui%s", &r->headers_in.server, port, uri);
 	}
 #endif
 #if(!NGX_HTTP_SSL)
-	ngx_sprintf((u_char *) WLS_REQUEST.url, "http://%V:%s%s", &r->headers_in.server, port, uri);
+	ngx_sprintf((u_char *) WLS_REQUEST.url, "http://%V:%ui%s", &r->headers_in.server, port, uri);
 #endif
 
 	ngx_escape_uri((u_char *) WLS_REQUEST.url_escaped,
