@@ -1146,7 +1146,7 @@ static ngx_int_t ngx_http_raven_init(ngx_conf_t *cf) {
 	fsize = ftell(f);
 	fseek(f, 0, SEEK_SET);
 
-	key = malloc(fsize + 1);
+	key = ngx_pcalloc(cf->pool, fsize + 1);
 	fsize = fread(key, 1, fsize, f);
 	fclose(f);
 
@@ -1161,7 +1161,7 @@ static ngx_int_t ngx_http_raven_init(ngx_conf_t *cf) {
  * Generate GUID for this instance (will be sent to WLS in params as a "fingerprint")
  */
 	uuid_generate_time(uu);
-	guid = (char *)malloc(37); // The uuid_unparse function converts the supplied UUID uu from the binary representation into a 36-byte string (plus trailing '\0')
+	guid = (char *) ngx_pcalloc(cf->pool, 37); // The uuid_unparse function converts the supplied UUID uu from the binary representation into a 36-byte string (plus trailing '\0')
 	uuid_unparse(uu, guid); // Guaranteed to be NULL terminated
 
 	return NGX_OK;
