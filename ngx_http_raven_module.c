@@ -995,18 +995,15 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 #if (NGX_HTTP_SSL)
 	if(r->http_connection->ssl) // Make an "https://" prefixed url
 	{
-		ngx_sprintf((u_char *)WLS_REQUEST.url, "https://%s:%s%s", (char *) r->headers_in.server.data, port,
-				uri);
+		ngx_sprintf((u_char *)WLS_REQUEST.url, "https://%V:%s%s", &r->headers_in.server, port, uri);
 	}
 	else // Make an "http://" prefixed url
 	{
-		ngx_sprintf((u_char *)WLS_REQUEST.url, "http://%s:%s%s", (char *) r->headers_in.server.data, port,
-				uri);
+		ngx_sprintf((u_char *)WLS_REQUEST.url, "http://%V:%s%s", &r->headers_in.server, port, uri);
 	}
 #endif
 #if(!NGX_HTTP_SSL)
-	ngx_sprintf((u_char *) WLS_REQUEST.url, "http://%s:%s%s",
-			(char *) r->headers_in.server.data, port, uri);
+	ngx_sprintf((u_char *) WLS_REQUEST.url, "http://%V:%s%s", &r->headers_in.server, port, uri);
 #endif
 
 	ngx_escape_uri((u_char *) WLS_REQUEST.url_escaped,
