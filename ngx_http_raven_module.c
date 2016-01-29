@@ -411,6 +411,8 @@ static ngx_int_t ngx_http_raven_cookie_ok(ngx_http_request_t *r, ngx_str_t *valu
 			raven_config->RavenSecretKey.len, (const unsigned char*) payload,
 			strlen(payload), hash, 0); // "0" means use SHA256, not truncated as SHA224
 
+	ngx_pfree(r->pool, payload);
+
 	unencoded_sig.len = 32; // Right size for holding raw SHA256-HMAC
 	unencoded_sig.data = (u_char *) hash;
 
@@ -425,12 +427,20 @@ static ngx_int_t ngx_http_raven_cookie_ok(ngx_http_request_t *r, ngx_str_t *valu
 		ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
 				"ngx_http_raven_cookie_ok: Sig match,\nA: %s\nB: %s",
 				COOKIE_STRUCT.sig, (char *) encoded_sig.data);
+
 		*principal = COOKIE_STRUCT.principal;
+
+		ngx_pfree(r->pool, encoded_sig.data);
+
 		return NGX_OK;
 	}
+
 	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, // Signatures do not match
 			"ngx_http_raven_cookie_ok: Sig mismatch,\nA: %s\nB: %s",
 			COOKIE_STRUCT.sig, (char *) encoded_sig.data);
+
+	ngx_pfree(r->pool, encoded_sig.data);
+
 	return NGX_DECLINED;
 }
 
@@ -707,10 +717,14 @@ static ngx_int_t ngx_http_raven_wls_response_ok(ngx_http_request_t *r, ngx_str_t
 			"ngx_http_raven_wls_response_ok: Checking WLS-Response: %s", dat);
 
 	if (!ngx_http_raven_check_sig(r, dat, (char *) decoded_sig.data)) {
+		ngx_pfree(r->pool, decoded_sig.data);
+		ngx_pfree(r->pool, dat);
 		return NGX_DECLINED;
 	}
+	ngx_pfree(r->pool, decoded_sig.data);
+	ngx_pfree(r->pool, dat);
 	value->len = strlen(WLS_RESPONSE.principal);
-    value->data = (u_char *)WLS_RESPONSE.principal; // Return principal in value parameter
+	value->data = (u_char *)WLS_RESPONSE.principal; // Return principal in value parameter
 	*original_url = WLS_RESPONSE.url; // Return pointer to url
 	return NGX_OK;
 }
@@ -730,6 +744,7 @@ static ngx_int_t ngx_http_raven_drop_cookie(ngx_http_request_t *r, char *princip
 	/*
 	 * The "expires" field should be big enough to accommodate 9 digits (max Sat, 20th Nov 2286 @ 17:46:39)
 	 */
+	// Memory to be handed over to r->headers_out list entry
 	cookie = ngx_pcalloc(r->pool, 256 + strlen(principal) + 1); // Make sure is zeroed, as will be returned to client and may otherwise leak data
 	if (cookie == NULL) {
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
@@ -760,6 +775,8 @@ static ngx_int_t ngx_http_raven_drop_cookie(ngx_http_request_t *r, char *princip
 	ngx_sprintf((u_char *) cookie, "%s=%s!%s$; HttpOnly", // Cookies are terminated with a dollar to make it easier to find the end of the sig
 			(char *) raven_config->RavenCookieName.data, payload,
 			(char *) encoded_sig.data);
+
+	ngx_pfree(r->pool, encoded_sig.data);
 
 	ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ngx_http_raven_drop_cookie: Set-Cookie: %s", cookie);
 
@@ -815,12 +832,14 @@ static ngx_int_t ngx_http_raven_fake_auth_header(ngx_http_request_t *r, char *pr
 		auth_hdr_decoded.data[auth_hdr_decoded.len-1] = ':';
 		auth_hdr_decoded.data[auth_hdr_decoded.len] = '\0';
 		auth_hdr.len = ngx_base64_encoded_length(auth_hdr_decoded.len) + sizeof("Basic ") - 1;
+		// Memory to be handed over to r->headers_in list entry
 		auth_hdr.data = ngx_pcalloc(r->pool, auth_hdr.len+1);
 		if (auth_hdr.data != NULL) {
 			ngx_memcpy(auth_hdr.data, (char *)"Basic ", sizeof("Basic ") - 1);
 			auth_hdr_p.data = auth_hdr.data + sizeof("Basic ") - 1;
 			auth_hdr_p.len = auth_hdr.len - sizeof("Basic ") + 1;
 			ngx_encode_base64(&auth_hdr_p, &auth_hdr_decoded);
+			ngx_pfree(r->pool, auth_hdr_decoded.data);
 
 			if (r->headers_in.authorization == NULL) {
 				r->headers_in.authorization = ngx_list_push(&r->headers_in.headers);
@@ -835,6 +854,7 @@ static ngx_int_t ngx_http_raven_fake_auth_header(ngx_http_request_t *r, char *pr
 
 			return NGX_OK;
 		}
+		ngx_pfree(r->pool, auth_hdr_decoded.data);
 	}
 	return NGX_ERROR;
 }
@@ -1005,6 +1025,8 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 	ngx_sprintf((u_char *) WLS_REQUEST.url, "http://%V:%ui%s", &r->headers_in.server, port, uri);
 #endif
 
+	ngx_pfree(r->pool, uri);
+
 	ngx_escape_uri((u_char *) WLS_REQUEST.url_escaped,
 			(u_char *) WLS_REQUEST.url, strlen(WLS_REQUEST.url),
 			NGX_ESCAPE_URI_COMPONENT); // Important; use ngx_escape_uri_component, not ngx_escape_uri
@@ -1024,6 +1046,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 	WLS_REQUEST.skew = "0"; // MUST be "0" if it is included, it is now deprecated
 	WLS_REQUEST.fail = "yes"; // Get WLS to handle error conditions for simplicity
 
+	// Memory to be handed over to r->headers_out list entry
 	redirect = (char *) ngx_pcalloc(r->pool, 64 + raven_config->RavenLogin.len // strlen(FORMAT_STRING) < 64
 			+ strlen(WLS_REQUEST.ver)
 			+ strlen(WLS_REQUEST.url_escaped)
@@ -1042,6 +1065,9 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 			WLS_REQUEST.url_escaped, WLS_REQUEST.desc, WLS_REQUEST.aauth,
 			WLS_REQUEST.iact, WLS_REQUEST.msg, WLS_REQUEST.params,
 			WLS_REQUEST.date, WLS_REQUEST.skew, WLS_REQUEST.fail);
+
+	ngx_pfree(r->pool, WLS_REQUEST.url);
+	ngx_pfree(r->pool, WLS_REQUEST.url_escaped);
 
 	ngx_log_error(NGX_LOG_INFO, r->connection->log, 0, "ngx_http_raven_handler: Redirecting to: %s", redirect);
 
