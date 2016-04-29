@@ -17,10 +17,10 @@
 #include <stdlib.h> // Need strsep
 #include <uuid/uuid.h> // Need to generate a unique identifer to "fingerprint" WLS requests
 
-#include <polarssl/pk.h> // Need for checking sig in WLS response
-#include <polarssl/sha1.h> // Need for checking sig in WLS response
-#include <polarssl/sha256.h> // Used for session cookie
-#include <polarssl/error.h> // Used to decode error codes (error_strerror)
+#include <mbedtls/pk.h> // Need for checking sig in WLS response
+#include <mbedtls/sha1.h> // Need for checking sig in WLS response
+#include <mbedtls/md.h> // Need for HMAC generation for session cookie
+#include <mbedtls/error.h> // Used to decode error codes
 
 #define MIN_KEY_LENGTH 8 // This is checked when config is loaded
 #define WLS_RESPONSE_EXPECTED_PARAMS 14 // Number of expected WLS response parameters (including ptags, ver >= 3)
@@ -407,9 +407,10 @@ static ngx_int_t ngx_http_raven_cookie_ok(ngx_http_request_t *r, ngx_str_t *valu
 	ngx_sprintf((u_char *) payload, "%s!%s", COOKIE_STRUCT.principal, // Make check string
 			COOKIE_STRUCT.expiry);
 
-	sha256_hmac((const unsigned char *) raven_config->RavenSecretKey.data, // Generate SHA256-HMAC sig
+	mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), // Generate SHA256-HMAC sig
+			(const unsigned char *) raven_config->RavenSecretKey.data,
 			raven_config->RavenSecretKey.len, (const unsigned char*) payload,
-			strlen(payload), hash, 0); // "0" means use SHA256, not truncated as SHA224
+			strlen(payload), hash);
 
 	ngx_pfree(r->pool, payload);
 
@@ -467,33 +468,33 @@ static ngx_int_t ngx_http_wls_response_check(ngx_http_request_t *r,
 /*
  * This function checks the signature of a WLS response. It returns 1 for success, 0 on failure
  *
- * In PolarSSL there is a direct way (by using the RSA module) and an advised way (by using the Public Key layer) to use RSA
+ * In mbed TLS there is a direct way (by using the RSA module) and an advised way (by using the Public Key layer) to use RSA
  * To obtain pubkey use 'openssl x509 -pubkey -noout -in pubkey901.crt > raven.pem
  */
 static ngx_int_t ngx_http_raven_check_sig(ngx_http_request_t *r, char *dat, char *sig) {
 	int res = 0;
 	int verified = 0; // Separate variable for reporting verification failure/success
-	pk_context pk;
+	mbedtls_pk_context pk;
 	unsigned char hash[20]; // To hold SHA1 hash
 	char errbuf[128];
-	sha1((unsigned char*) dat, strlen(dat), hash);
-	pk_init(&pk);
+	mbedtls_sha1((unsigned char*) dat, strlen(dat), hash);
+	mbedtls_pk_init(&pk);
 	/* Replaced with in-memory public key, no fopen required during operation */
-	//if((res = pk_parse_public_keyfile(&pk, PUBKEY)) == 0) {
-	if((res = pk_parse_public_key(&pk, (const u_char *)key, strlen(key))) == 0){
-		if ((res = pk_verify(&pk, POLARSSL_MD_SHA1, hash, 20,
+	//if((res = mbedtls_pk_parse_public_keyfile(&pk, PUBKEY)) == 0) {
+	if((res = mbedtls_pk_parse_public_key(&pk, (const u_char *)key, strlen(key))) == 0){
+		if ((res = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA1, hash, 20,
 				(const unsigned char*) sig, 128)) == 0) { // Can't use strlen(sig) here, as sig is binary data and may have an embedded NULL
 			verified = 1; // Success
 		} else {
-			/* Fetch PolarSSL error description */
-			error_strerror(res, errbuf, sizeof(errbuf));
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: pk_verify error %d: %s",
+			/* Fetch mbed TLS error description */
+			mbedtls_strerror(res, errbuf, sizeof(errbuf));
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: mbedtls_pk_verify error %d: %s",
 					res, errbuf);
 		}
 	} else {
-		/* Fetch PolarSSL error description */
-		error_strerror(res, errbuf, sizeof(errbuf));
-		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: pk_parse_public_key error %d: %s",
+		/* Fetch mbed TLS error description */
+		mbedtls_strerror(res, errbuf, sizeof(errbuf));
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: mbedtls_pk_parse_public_key error %d: %s",
 				res, errbuf);
 	}
 	return verified; // Might change to return NGX_OK/NGX_DECLINED for consitency
@@ -758,9 +759,10 @@ static ngx_int_t ngx_http_raven_drop_cookie(ngx_http_request_t *r, char *princip
 
 	ngx_sprintf((u_char *) payload, "%s!%d", principal, expires);
 
-	sha256_hmac((const unsigned char *) raven_config->RavenSecretKey.data,
+	mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+			(const unsigned char *) raven_config->RavenSecretKey.data,
 			raven_config->RavenSecretKey.len, (const unsigned char*) payload,
-			strlen(payload), hash, 0); // "0" means use SHA256, not truncated as SHA224
+			strlen(payload), hash);
 
 	unencoded_sig.len = 32;
 	unencoded_sig.data = (u_char *) hash;
