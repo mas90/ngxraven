@@ -37,7 +37,7 @@
  * Key "rollover" is of course not possible with this approach, which may or may not matter to you
  * A key change requires a server restart
  */
-static char *key; // RSA public key
+static mbedtls_pk_context pk; // RSA public key
 static char *guid; // A GUID generated for each server instance so it can verify WLS responses are not replayed from another server
 
 /*
@@ -474,27 +474,16 @@ static ngx_int_t ngx_http_wls_response_check(ngx_http_request_t *r,
 static ngx_int_t ngx_http_raven_check_sig(ngx_http_request_t *r, char *dat, char *sig) {
 	int res = 0;
 	int verified = 0; // Separate variable for reporting verification failure/success
-	mbedtls_pk_context pk;
 	unsigned char hash[20]; // To hold SHA1 hash
 	char errbuf[128];
 	mbedtls_sha1((unsigned char*) dat, strlen(dat), hash);
-	mbedtls_pk_init(&pk);
-	/* Replaced with in-memory public key, no fopen required during operation */
-	//if((res = mbedtls_pk_parse_public_keyfile(&pk, PUBKEY)) == 0) {
-	if((res = mbedtls_pk_parse_public_key(&pk, (const u_char *)key, strlen(key))) == 0){
-		if ((res = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA1, hash, 20,
-				(const unsigned char*) sig, 128)) == 0) { // Can't use strlen(sig) here, as sig is binary data and may have an embedded NULL
-			verified = 1; // Success
-		} else {
-			/* Fetch mbed TLS error description */
-			mbedtls_strerror(res, errbuf, sizeof(errbuf));
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: mbedtls_pk_verify error %d: %s",
-					res, errbuf);
-		}
+	if ((res = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA1, hash, 20,
+			(const unsigned char*) sig, 128)) == 0) { // Can't use strlen(sig) here, as sig is binary data and may have an embedded NULL
+		verified = 1; // Success
 	} else {
 		/* Fetch mbed TLS error description */
 		mbedtls_strerror(res, errbuf, sizeof(errbuf));
-		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: mbedtls_pk_parse_public_key error %d: %s",
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ngx_http_raven_check_sig: mbedtls_pk_verify error %d: %s",
 				res, errbuf);
 	}
 	return verified; // Might change to return NGX_OK/NGX_DECLINED for consitency
@@ -1149,8 +1138,10 @@ static ngx_int_t ngx_http_raven_init(ngx_conf_t *cf) {
 	ngx_http_handler_pt *h;
 	ngx_http_core_main_conf_t *cmcf;
 	FILE *f;
-    long fsize;
-    uuid_t uu; // u_char *uu[16]
+	long fsize;
+	uuid_t uu; // u_char *uu[16]
+	int res = 0;
+	char errbuf[128];
 
 	cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
@@ -1163,26 +1154,15 @@ static ngx_int_t ngx_http_raven_init(ngx_conf_t *cf) {
 /*
  * Load public key from disk into RAM
  */
-	f = fopen(PUBKEY, "rb");
-	if (!f) {
+	mbedtls_pk_init(&pk);
+	if ((res = mbedtls_pk_parse_public_keyfile(&pk, PUBKEY)) != 0) {
+		/* Fetch mbed TLS error description */
+		mbedtls_strerror(res, errbuf, sizeof(errbuf));
 		ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-				"ngx_http_raven_init: Cannot open public key '%s': %s", PUBKEY, strerror(errno));
-			return NGX_ERROR;
+				"ngx_http_raven_init: Cannot load public key '%s': mbedtls_pk_parse_public_keyfile error %d: %s",
+				PUBKEY, res, errbuf);
+		return NGX_ERROR;
 	}
-	fseek(f, 0, SEEK_END);
-	fsize = ftell(f);
-	fseek(f, 0, SEEK_SET);
-
-	key = ngx_pcalloc(cf->pool, fsize + 1);
-	fsize = fread(key, 1, fsize, f);
-	fclose(f);
-
-	if (!fsize) {
-		ngx_conf_log_error(NGX_LOG_ERR, cf, 0,
-				"ngx_http_raven_init: Empty public key '%s': %s", PUBKEY, strerror(errno));
-	}
-
-	key[fsize] = 0; // NULL terminate to be safe and tidy
 
 /*
  * Generate GUID for this instance (will be sent to WLS in params as a "fingerprint")
