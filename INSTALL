@@ -17,7 +17,7 @@ To get started:
         location /test {
                 RavenActive on;
                 RavenLogin https://demo.raven.cam.ac.uk/auth/authenticate.html;
-                #RavenLogin https://demo.raven.cam.ac.uk/auth/logout.html;
+                RavenLogout https://demo.raven.cam.ac.uk/auth/logout.html;
                 RavenSecretKey	qwertyui;
                 RavenLazyClock	on;
                 RavenAllow	test0001;
