@@ -944,7 +944,7 @@ static ngx_int_t ngx_http_raven_handler(ngx_http_request_t *r) {
 				r->headers_out.location->key.len = sizeof("Location") - 1;
 				r->headers_out.location->key.data = (u_char *) "Location";
 				r->headers_out.location->value.len = strlen(redirect);
-				r->headers_out.location->value.data = redirect;
+				r->headers_out.location->value.data = (unsigned char *)redirect;
 
 				if (r->http_version >= NGX_HTTP_VERSION_11) {
 					return NGX_HTTP_SEE_OTHER; // 303
@@ -1137,8 +1137,6 @@ ngx_http_raven_rule(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 static ngx_int_t ngx_http_raven_init(ngx_conf_t *cf) {
 	ngx_http_handler_pt *h;
 	ngx_http_core_main_conf_t *cmcf;
-	FILE *f;
-	long fsize;
 	uuid_t uu; // u_char *uu[16]
 	int res = 0;
 	char errbuf[128];

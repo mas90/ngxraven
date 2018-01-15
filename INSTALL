@@ -1,47 +1,58 @@
 To get started:
 
-1. Download nginx source.
-2. Download this module.
-3. From nginx directory, run:
+1.  Download nginx source.
+2.  Download this module.
+3.  From nginx directory, run:
 
 	./configure --add-module=/path/to/module/dir
 	make
 	make install (will land in "/usr/local/nginx")
 
-4. Make a location configuration something like this:
+4.  Make a location configuration something like this:
 
-	error_log	logs/error.log	info; # Optional, but useful to see some messages
+        error_log	logs/error.log	info; # Optional, but useful to see some messages
 
-	* * * * *
+        * * * * *
 
-	location /test{
-		RavenActive on;
-		RavenLogin https://demo.raven.cam.ac.uk/auth/authenticate.html;
-		RavenLogin https://demo.raven.cam.ac.uk/auth/logout.html;
-		RavenSecretKey	qwertyui;
-		RavenLazyClock	on;
-		RavenAllow	test0001;
-		RavenDeny	test0002;
-		RavenAllow	test0003;
-		RavenDeny	test0004;
-		RavenAllow	test0005;
-	}
+        location /test {
+                RavenActive on;
+                RavenLogin https://demo.raven.cam.ac.uk/auth/authenticate.html;
+                #RavenLogin https://demo.raven.cam.ac.uk/auth/logout.html;
+                RavenSecretKey	qwertyui;
+                RavenLazyClock	on;
+                RavenAllow	test0001;
+                RavenDeny	test0002;
+                RavenAllow	test0003;
+                RavenDeny	test0004;
+                RavenAllow	test0005;
+        }
 
-	* * * * *
+        * * * * *
 
-5. Get a copy of the public key for the test server from here:
+    Assuming you've used the default install location, the configuration file to add this to
+    will be /usr/local/nginx/conf/nginx.conf
 
-	https://raven.cam.ac.uk/project/keys/demo_server/pubkey901.crt
+5.  For the configuration shown, you'll also need to create an html page to show at
+    /usr/local/nginx/html/test/index.html
 
-6. Convert key to suitable format like this:
+6.  Get a copy of the public key for the test server from here:
 
-	openssl x509 -pubkey -noout -in pubkey901.crt > raven.pem
+        https://raven.cam.ac.uk/project/keys/demo_server/pubkey901.crt
 
-7. Make sure key is in the nginx "/usr/local/nginx/conf" directory (or modify code to suit).
+7.  Convert key to suitable format like this:
 
-8. Start nginx:
+        openssl x509 -pubkey -noout -in pubkey901.crt > raven.pem
 
-	/usr/local/nginx/sbin
+8.  Make sure key is in the nginx "/usr/local/nginx/conf" directory (or modify code to suit).
+
+9.  Start nginx:
+
+        cd /usr/local/nginx/sbin
+        ./nginx
+
+10. Visit the page http(s)://yourdomain/test/ to experience the Raven test server in all
+    its glory.
+
 
 A quick note about how the "RavenAllow" and "RavenDeny" directives work:
 
